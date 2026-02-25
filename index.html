@@ -16,11 +16,37 @@ canvas { display:block; width:100vw; height:100vh; }
     z-index:100;
 }
 #crosshair {
-    position:fixed; top:50%; left:50%;
-    width:30px; height:30px;
-    border:3px solid #0ff;
+    position:fixed;
+    top:50%; left:50%;
+    width:20px; height:20px;
     transform:translate(-50%,-50%);
-    pointer-events:none; z-index:100;
+    pointer-events:none;
+    z-index:100;
+}
+
+#crosshair::before,
+#crosshair::after {
+    content:"";
+    position:absolute;
+    background:#0ff;
+}
+
+#crosshair::before {
+    width:2px;
+    height:20px;
+    left:50%;
+    top:0;
+    transform:translateX(-50%);
+}
+
+#crosshair::after {
+    width:20px;
+    height:2px;
+    top:50%;
+    left:0;
+    transform:translateY(-50%);
+}
+
 }
 #upgradeMenu {
     display:none;
@@ -115,28 +141,31 @@ function shoot(){
 
     const forward = new THREE.Vector3(0,0,-1)
         .applyAxisAngle(new THREE.Vector3(0,1,0), yaw)
-        .applyAxisAngle(new THREE.Vector3(1,0,0), pitch);
+        .applyAxisAngle(new THREE.Vector3(1,0,0), pitch)
+        .normalize();
 
-    const spread = 0.08 / bulletCount;
+    const spread = 0.15; // horizontal spacing for multi-shot
 
     for(let i=0;i<bulletCount;i++){
         const bullet = new THREE.Mesh(
             new THREE.SphereGeometry(0.12),
             new THREE.MeshBasicMaterial({color:0xffff44})
         );
+
         bullet.position.copy(playerPos);
 
-        const dir = forward.clone().add(new THREE.Vector3(
-            (i - (bulletCount-1)/2)*spread,
-            (Math.random()-0.5)*spread,
-            0
-        )).normalize();
+        // horizontal offset only (no randomness)
+        const offset = (i - (bulletCount - 1) / 2) * spread;
+        const right = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+
+        const dir = forward.clone().add(right.multiplyScalar(offset)).normalize();
 
         bullet.userData.vel = dir.multiplyScalar(1.5);
         scene.add(bullet);
         bullets.push(bullet);
     }
 }
+
 
 // ZOMBIES
 function spawnZombies(){
