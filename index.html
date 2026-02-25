@@ -1,27 +1,37 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Zombie Arena 3D - Chromebook</title>
+    <title>Zombie Arena 3D FPS - Chromebook</title>
     <style>
         * { margin:0; padding:0; }
-        body { background:#000; overflow:hidden; font:14px monospace; }
+        body { 
+            background:#000; overflow:hidden; font:14px monospace; 
+            cursor: none;
+        }
         canvas { display:block; width:100vw; height:100vh; }
         #ui {
             position:fixed; top:10px; left:10px; color:#0ff; 
-            background:rgba(0,0,0,0.7); padding:10px; border-radius:5px;
+            background:rgba(0,0,0,0.8); padding:10px; border-radius:5px;
+        }
+        #crosshair {
+            position:fixed; top:50%; left:50%; 
+            width:20px; height:20px; 
+            border:2px solid #0ff; border-radius:50%;
+            transform:translate(-50%,-50%);
+            pointer-events:none;
+            z-index:100;
         }
     </style>
-    <!-- Chromebook-safe CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div id="ui">
         Round: <span id="round">1</span> | Kills: <span id="kills">0</span> | 
-        Bullets: <span id="bullets">1</span> | Use WASD + Mouse
+        Bullets: <span id="bullets">1</span> | WASD + Mouse
     </div>
+    <div id="crosshair"></div>
 
     <script>
-        // Chromebook-safe setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x000011);
         const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
@@ -29,9 +39,9 @@
         renderer.setSize(innerWidth, innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Bright lights for Chromebook
-        scene.add(new THREE.AmbientLight(0x444444, 1));
-        const sun = new THREE.DirectionalLight(0xffffff, 1);
+        // Lights
+        scene.add(new THREE.AmbientLight(0x444444, 0.8));
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
         sun.position.set(0, 50, 20);
         scene.add(sun);
 
@@ -43,43 +53,96 @@
         floor.rotation.x = -Math.PI/2;
         scene.add(floor);
 
-        // Player (cyan cube)
-        const player = new THREE.Mesh(
-            new THREE.BoxGeometry(2,2,2),
-            new THREE.MeshBasicMaterial({color: 0x00ffff})
-        );
-        player.position.y = 1;
-        scene.add(player);
+        // BLUE WALLS
+        const wallMat = new THREE.MeshBasicMaterial({color: 0x0066cc});
+        const walls = [];
+        for(let i = 0; i < 4; i++) {
+            const wall = new THREE.Mesh(
+                new THREE.BoxGeometry(200, 20, 5),
+                wallMat
+            );
+            if(i === 0) wall.position.set(0, 10, -90);      // North
+            if(i === 1) wall.position.set(90, 10, 0); rotation.y = Math.PI/2;  // East
+            if(i === 2) wall.position.set(0, 10, 90);       // South  
+            if(i === 3) wall.position.set(-90, 10, 0); rotation.y = Math.PI/2; // West
+            scene.add(wall);
+            walls.push(wall);
+        }
+
+        // YELLOW WARPS (screen wrap portals)
+        const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00});
+        const warps = [];
+        for(let i = 0; i < 4; i++) {
+            const warp = new THREE.Mesh(
+                new THREE.BoxGeometry(8, 15, 1),
+                warpMat
+            );
+            if(i === 0) warp.position.set(0, 7.5, -95);
+            if(i === 1) warp.position.set(95, 7.5, 0);
+            if(i === 2) warp.position.set(0, 7.5, 95);
+            if(i === 3) warp.position.set(-95, 7.5, 0);
+            scene.add(warp);
+            warps.push(warp);
+        }
 
         // Game vars
         let round = 1, kills = 0, bulletCount = 1;
         let bullets = [], zombies = [], gameRunning = true;
-        let keys = {}, mouseX = 0, mouseY = 0;
+        let keys = {}, mouseX = 0, yaw = 0, pitch = 0;
         let cooldown = 0;
 
-        // Input
-        onkeydown = e => keys[e.code] = 1;
-        onkeyup = e => keys[e.code] = 0;
-        onmousemove = e => {
-            mouseX = (e.clientX/innerWidth)*2-1;
-            mouseY = -(e.clientY/innerHeight)*2+1;
+        // Lock pointer for FPS
+        renderer.domElement.requestPointerLock = renderer.domElement.requestPointerLock || renderer.domElement.mozRequestPointerLock;
+        document.addEventListener('click', () => renderer.domElement.requestPointerLock());
+        document.addEventListener('pointerlockchange', () => {
+            if(document.pointerLockElement) document.body.style.cursor = 'none';
+            else document.body.style.cursor = 'auto';
+        });
+        document.addEventListener('mousemove', e => {
+            if(document.pointerLockElement) {
+                yaw -= e.movementX * 0.002;
+                pitch -= e.movementY * 0.002;
+                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+            }
+        });
+
+        // WASD
+        onkeydown = e => { 
+            keys[e.code] = 1; 
+            if(e.code === 'Space') e.preventDefault();
         };
+        onkeyup = e => keys[e.code] = 0;
+
+        // FPS Camera position (player hitbox)
+        const playerPos = new THREE.Vector3(0, 1.7, 0);
 
         // Shoot
         function shoot() {
             if(cooldown > 0 || !gameRunning) return;
-            cooldown = 20;
+            cooldown = 15;
+            
+            // Forward vector from camera
+            const forward = new THREE.Vector3(0, 0, -1);
+            forward.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+            forward.applyAxisAngle(new THREE.Vector3(1,0,0), pitch);
             
             for(let i = 0; i < bulletCount; i++) {
                 const bullet = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.2),
-                    new THREE.MeshBasicMaterial({color: 0xffff00})
+                    new THREE.SphereGeometry(0.15),
+                    new THREE.MeshBasicMaterial({color: 0xffff44})
                 );
-                bullet.position.copy(player.position);
+                bullet.position.copy(playerPos);
                 
-                const aim = new THREE.Vector3(mouseX*20, 0, mouseY*20).normalize();
-                bullet.userData.vx = aim.x * 0.8;
-                bullet.userData.vz = aim.z * 0.8;
+                const spread = 0.05;
+                const dir = forward.clone().add(new THREE.Vector3(
+                    (Math.random()-0.5)*spread,
+                    (Math.random()-0.5)*spread,
+                    (Math.random()-0.5)*spread
+                )).normalize();
+                
+                bullet.userData.vx = dir.x * 1.2;
+                bullet.userData.vy = dir.y * 1.2;
+                bullet.userData.vz = dir.z * 1.2;
                 
                 scene.add(bullet);
                 bullets.push(bullet);
@@ -92,13 +155,13 @@
             zombies = [];
             for(let i = 0; i < round+2; i++) {
                 const zombie = new THREE.Mesh(
-                    new THREE.BoxGeometry(1.5,3,1.5),
+                    new THREE.BoxGeometry(1.5, 3, 1.5),
                     new THREE.MeshBasicMaterial({color: 0x00ff00})
                 );
                 zombie.position.set(
-                    (Math.random()-0.5)*80,
+                    (Math.random()-0.5)*60,
                     1.5,
-                    (Math.random()-0.5)*80
+                    (Math.random()-0.5)*60
                 );
                 scene.add(zombie);
                 zombies.push(zombie);
@@ -109,34 +172,41 @@
         function loop() {
             requestAnimationFrame(loop);
 
-            // Player move
-            const speed = 0.5;
-            if(keys.KeyW) player.position.z -= speed;
-            if(keys.KeyS) player.position.z += speed;
-            if(keys.KeyA) player.position.x -= speed;
-            if(keys.KeyD) player.position.x += speed;
-
+            // WASD movement
+            const speed = 0.3;
+            const forward = new THREE.Vector3(0, 0, -1);
+            const right = new THREE.Vector3(1, 0, 0);
+            forward.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+            right.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+            
+            if(keys.KeyW) playerPos.add(forward.clone().multiplyScalar(speed));
+            if(keys.KeyS) playerPos.add(forward.clone().multiplyScalar(-speed));
+            if(keys.KeyA) playerPos.add(right.clone().multiplyScalar(-speed));
+            if(keys.KeyD) playerPos.add(right.clone().multiplyScalar(speed));
+            
             if(keys.Space) shoot();
             if(cooldown > 0) cooldown--;
 
-            // Camera follow
-            camera.position.set(player.position.x, 30, player.position.z-20);
-            camera.lookAt(player.position);
+            // FPS Camera
+            camera.position.copy(playerPos);
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = yaw;
+            camera.rotation.x = pitch;
 
             // Bullets
             for(let i = bullets.length-1; i>=0; i--) {
                 const b = bullets[i];
                 b.position.x += b.userData.vx;
+                b.position.y += b.userData.vy;
                 b.position.z += b.userData.vz;
                 
-                if(b.position.length() > 60) {
+                if(b.position.length() > 80) {
                     scene.remove(b); bullets.splice(i,1); continue;
                 }
 
-                // Hit zombies
                 for(let j = zombies.length-1; j>=0; j--) {
                     const z = zombies[j];
-                    if(b.position.distanceTo(z.position) < 1.5) {
+                    if(b.position.distanceTo(z.position) < 1.2) {
                         scene.remove(b); scene.remove(z);
                         bullets.splice(i,1);
                         zombies.splice(j,1);
@@ -148,14 +218,11 @@
 
             // Zombies chase
             zombies.forEach(z => {
-                const dx = player.position.x - z.position.x;
-                const dz = player.position.z - z.position.z;
-                const dist = Math.sqrt(dx*dx + dz*dz) || 1;
-                z.position.x += (dx/dist)*0.08;
-                z.position.z += (dz/dist)*0.08;
-                z.rotation.y = Math.atan2(dx, dz);
-
-                if(z.position.distanceTo(player.position) < 2) {
+                const dir = playerPos.clone().sub(z.position).normalize();
+                z.position.add(dir.multiplyScalar(0.06));
+                z.rotation.y = Math.atan2(dir.x, dir.z);
+                
+                if(z.position.distanceTo(playerPos) < 1.8) {
                     alert(`GAME OVER\nRound: ${round}\nKills: ${kills}`);
                     round = 1; kills = 0; bulletCount = 1;
                     spawnZombies();
@@ -163,12 +230,12 @@
             });
 
             // Next round
-            if(zombies.length === 0 && gameRunning) {
+            if(zombies.length === 0) {
                 round++;
                 spawnZombies();
             }
 
-            // Update UI
+            // UI
             document.getElementById('round').textContent = round;
             document.getElementById('kills').textContent = kills;
             document.getElementById('bullets').textContent = bulletCount;
@@ -176,7 +243,6 @@
             renderer.render(scene, camera);
         }
 
-        // Start
         spawnZombies();
         loop();
 
