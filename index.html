@@ -1,263 +1,229 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Zombie Arena 3D</title>
+    <title>Zombie Arena 3D - FIXED</title>
     <style>
-        body { margin:0; overflow:hidden; background:#111; }
+        body { margin:0; overflow:hidden; background:#111; font-family:monospace; }
         canvas { display:block; }
-        #ui-overlay {
-            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+        #ui { position:fixed; top:10px; left:10px; color:white; font-size:14px; }
+        #overlay {
+            position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
             background:rgba(0,0,0,0.95); border:3px solid #0066CC; padding:40px;
             text-align:center; color:white; display:none; z-index:10;
         }
         .btn { background:#0066CC; color:white; border:none; padding:15px 30px; margin:10px; cursor:pointer; font-size:18px; }
         .btn:hover { background:#0088ff; }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 </head>
 <body>
-    <div id="ui-overlay">
-        <h1 id="menu-title">UPGRADE MENU</h1>
+    <div id="ui">
+        Round: <span id="round">1</span> | Kills: <span id="kills">0</span> | Bullets: <span id="bullets">1</span>
+    </div>
+    <div id="overlay">
+        <h2 id="menu-title">UPGRADE MENU</h2>
         <p id="menu-text">SELECT UPGRADE:</p>
         <button class="btn" id="upgrade-bullets">+1 BULLET</button>
         <button class="btn" id="upgrade-speed">FASTER RELOAD</button>
     </div>
 
     <script>
-        // ---------- THREE.JS SETUP ----------
+        // Scene setup
         const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x111111);
         document.body.appendChild(renderer.domElement);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+        // Lights (CRITICAL - no lights = gray!)
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
         scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(0, 10, 0);
-        scene.add(directionalLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 5);
+        scene.add(dirLight);
 
-        // ---------- GAME STATE (same as before) ----------
-        const DEFAULTS = { bulletCount:1, shootCooldown:1500, round:1 };
-        let permBulletBonus = 0, permReloadBonus = 1, permanentChosen = false;
-        let gameActive = true, round = 1, zombiesKilled = 0, bulletCount = 1, shootCooldown = 1500;
-        let bullets = [], enemies = [], lastShotTime = 0, zombieSpeedBonus = 0;
-        let keys = {}, mouse = {x:0, y:0};
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
 
-        // ---------- 3D PLAYER ----------
-        const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-        const playerMaterial = new THREE.MeshLambertMaterial({ color: 0x00cccc });
-        const player = new THREE.Mesh(playerGeometry, playerMaterial);
+        // Game state
+        let gameState = {
+            round: 1, kills: 0, bulletCount: 1, shootCooldown: 1000,
+            bullets: [], enemies: [], lastShot: 0, gameActive: true
+        };
+
+        // Player
+        const playerGeo = new THREE.BoxGeometry(1, 1, 1);
+        const playerMat = new THREE.MeshLambertMaterial({ color: 0x00ffff });
+        const player = new THREE.Mesh(playerGeo, playerMat);
         player.position.set(0, 0.5, 0);
         scene.add(player);
 
-        // ---------- WALLS (3D) ----------
-        const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x0066cc });
-        const walls = [];
-        function createWalls() {
-            // Clear old walls
-            walls.forEach(w => scene.remove(w));
-            walls.length = 0;
-            
-            const arenaSize = 40;
-            const wallHeight = 3;
-            const wallThickness = 2;
-            
-            // Four corner walls
-            const wallPositions = [
-                {x: -arenaSize/2, z: -arenaSize/2, rotationY: 0},   // Top
-                {x:  arenaSize/2, z: -arenaSize/2, rotationY: 0},   // Top right gap
-                {x: -arenaSize/2, z:  arenaSize/2, rotationY: 0},   // Bottom
-                {x:  arenaSize/2, z:  arenaSize/2, rotationY: 0},   // Bottom right gap
-            ];
-            
-            wallPositions.forEach(pos => {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(wallThickness, wallHeight, arenaSize),
-                    wallMaterial
-                );
-                wall.position.set(pos.x, wallHeight/2, pos.z);
-                wall.rotation.y = pos.rotationY;
-                scene.add(wall);
-                walls.push(wall);
-            });
-        }
-
-        // ---------- ZOMBIES & BULLETS ----------
-        function createZombie() {
-            const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
-            const material = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
-            const zombie = new THREE.Mesh(geometry, material);
-            zombie.position.set(
-                (Math.random() - 0.5) * 20,
-                0.6,
-                (Math.random() - 0.5) * 20
-            );
-            scene.add(zombie);
-            return zombie;
-        }
-
-        function createBullet() {
-            const geometry = new THREE.SphereGeometry(0.1);
-            const material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-            const bullet = new THREE.Mesh(geometry, material);
-            scene.add(bullet);
-            return bullet;
-        }
-
-        // ---------- INPUT ----------
-        window.addEventListener('keydown', e => {
+        // Input
+        const keys = {};
+        document.addEventListener('keydown', e => {
             keys[e.code] = true;
-            if(e.code === 'Backspace') showUpgradeMenu();
             if(e.code === 'Space') e.preventDefault();
         });
-        window.addEventListener('keyup', e => keys[e.code] = false);
+        document.addEventListener('keyup', e => keys[e.code] = false);
 
-        window.addEventListener('mousemove', e => {
+        // Mouse aim
+        const mouse = new THREE.Vector2();
+        document.addEventListener('mousemove', e => {
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         });
 
-        // ---------- GAME FUNCTIONS ----------
+        // Create bullet
+        function createBullet(dir) {
+            const geo = new THREE.SphereGeometry(0.1);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            const bullet = new THREE.Mesh(geo, mat);
+            bullet.position.copy(player.position);
+            bullet.userData.velocity = dir.multiplyScalar(0.5);
+            scene.add(bullet);
+            return bullet;
+        }
+
+        // Create zombie
+        function createZombie() {
+            const geo = new THREE.BoxGeometry(1, 1.5, 1);
+            const mat = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+            const zombie = new THREE.Mesh(geo, mat);
+            zombie.position.set(
+                (Math.random() - 0.5) * 30,
+                0.75,
+                (Math.random() - 0.5) * 30
+            );
+            zombie.userData.speed = 0.03;
+            scene.add(zombie);
+            return zombie;
+        }
+
+        // Shoot
         function shoot() {
             const now = Date.now();
-            if(now - lastShotTime < shootCooldown) return;
-            lastShotTime = now;
+            if(now - gameState.lastShot < gameState.shootCooldown || !gameState.gameActive) return;
+            gameState.lastShot = now;
 
-            const speed = 0.5;
-            const baseAngle = Math.atan2(mouse.x, -mouse.y);
-            const spread = 0.2 / bulletCount;
-
-            for(let i = 0; i < bulletCount; i++) {
-                let angle = baseAngle + (i - (bulletCount - 1) / 2) * spread;
-                let bullet = createBullet();
-                bullet.position.copy(player.position);
-                bullet.userData = {
-                    vx: Math.cos(angle) * speed,
-                    vy: 0,
-                    vz: Math.sin(angle) * speed
-                };
-                bullets.push(bullet);
+            const aimDir = new THREE.Vector3(mouse.x * 10, 0, mouse.y * 10).normalize();
+            for(let i = 0; i < gameState.bulletCount; i++) {
+                const spread = 0.1;
+                const dir = aimDir.clone().add(new THREE.Vector3(
+                    (Math.random() - 0.5) * spread,
+                    0,
+                    (Math.random() - 0.5) * spread
+                )).normalize();
+                gameState.bullets.push(createBullet(dir));
             }
         }
 
+        // Spawn round
         function spawnRound() {
-            enemies.forEach(e => scene.remove(e));
-            enemies.length = 0;
-            let count = 5 + round;
-            let zSpeed = 0.02 + (round * 0.002) + zombieSpeedBonus;
-            
+            gameState.enemies.forEach(e => scene.remove(e));
+            gameState.enemies = [];
+            const count = 3 + gameState.round;
             for(let i = 0; i < count; i++) {
-                let zombie = createZombie();
-                zombie.userData.speed = zSpeed;
-                enemies.push(zombie);
+                gameState.enemies.push(createZombie());
             }
         }
 
-        function showUpgradeMenu() {
-            gameActive = false;
-            document.getElementById('ui-overlay').style.display = 'block';
-        }
-
-        // UI Event Listeners (same as before)
+        // UI
+        const overlay = document.getElementById('overlay');
         document.getElementById('upgrade-bullets').onclick = () => {
-            bulletCount++;
-            startNextRound();
+            gameState.bulletCount++;
+            nextRound();
         };
         document.getElementById('upgrade-speed').onclick = () => {
-            shootCooldown *= 0.8;
-            startNextRound();
+            gameState.shootCooldown *= 0.8;
+            nextRound();
         };
-
-        function startNextRound() {
-            document.getElementById('ui-overlay').style.display = 'none';
-            gameActive = true;
-            round++;
+        function nextRound() {
+            overlay.style.display = 'none';
+            gameState.gameActive = true;
+            gameState.round++;
             spawnRound();
         }
 
-        // ---------- UPDATE LOOP ----------
+        // Update
         function update() {
-            if(!gameActive) return;
+            if(!gameState.gameActive) return;
 
             // Player movement
             const speed = 0.2;
-            let moveX = 0, moveZ = 0;
-            if(keys['KeyW']) moveZ -= speed;
-            if(keys['KeyS']) moveZ += speed;
-            if(keys['KeyA']) moveX -= speed;
-            if(keys['KeyD']) moveX += speed;
-
-            player.position.x += moveX;
-            player.position.z += moveZ;
+            if(keys['KeyW']) player.position.z -= speed;
+            if(keys['KeyS']) player.position.z += speed;
+            if(keys['KeyA']) player.position.x -= speed;
+            if(keys['KeyD']) player.position.x += speed;
 
             if(keys['Space']) shoot();
 
-            // Update camera (top-down follow)
-            camera.position.set(player.position.x, 25, player.position.z - 15);
+            // Camera follow
+            camera.position.set(player.position.x, 20, player.position.z - 15);
             camera.lookAt(player.position);
 
-            // Update bullets
-            for(let i = bullets.length - 1; i >= 0; i--) {
-                let b = bullets[i];
-                b.position.x += b.userData.vx;
-                b.position.z += b.userData.vz;
-                
+            // Bullets
+            for(let i = gameState.bullets.length - 1; i >= 0; i--) {
+                const b = gameState.bullets[i];
+                b.position.add(b.userData.velocity);
                 if(b.position.length() > 50) {
                     scene.remove(b);
-                    bullets.splice(i, 1);
+                    gameState.bullets.splice(i, 1);
                     continue;
                 }
-
-                // Bullet-enemy collision
-                for(let j = enemies.length - 1; j >= 0; j--) {
-                    let e = enemies[j];
+                // Hit detection
+                for(let j = gameState.enemies.length - 1; j >= 0; j--) {
+                    const e = gameState.enemies[j];
                     if(b.position.distanceTo(e.position) < 0.8) {
                         scene.remove(b); scene.remove(e);
-                        bullets.splice(i, 1);
-                        enemies.splice(j, 1);
-                        zombiesKilled++;
+                        gameState.bullets.splice(i, 1);
+                        gameState.enemies.splice(j, 1);
+                        gameState.kills++;
                         break;
                     }
                 }
             }
 
-            // Update enemies
-            enemies.forEach(e => {
-                let dx = player.position.x - e.position.x;
-                let dz = player.position.z - e.position.z;
-                let dist = Math.sqrt(dx*dx + dz*dz);
-                e.position.x += (dx / dist) * e.userData.speed;
-                e.position.z += (dz / dist) * e.userData.speed;
-
-                // Collision
+            // Enemies
+            gameState.enemies.forEach(e => {
+                const dir = player.position.clone().sub(e.position).normalize();
+                e.position.add(dir.multiplyScalar(e.userData.speed));
+                e.rotation.y = Math.atan2(dir.x, dir.z);
                 if(e.position.distanceTo(player.position) < 1) {
-                    // Reset game
-                    round = 1; zombiesKilled = 0; bulletCount = 1; shootCooldown = 1500;
-                    bullets.forEach(b => scene.remove(b)); bullets.length = 0;
-                    enemies.forEach(e => scene.remove(e)); enemies.length = 0;
-                    spawnRound();
+                    // Game over
+                    gameState.gameActive = false;
+                    overlay.style.display = 'block';
+                    document.getElementById('menu-title').textContent = 'GAME OVER';
+                    document.getElementById('menu-text').textContent = `Round ${gameState.round} | Press upgrade to continue`;
                 }
             });
 
-            // Check win round
-            if(enemies.length === 0) {
-                round++;
-                spawnRound();
+            // Update UI
+            document.getElementById('round').textContent = gameState.round;
+            document.getElementById('kills').textContent = gameState.kills;
+            document.getElementById('bullets').textContent = gameState.bulletCount;
+
+            // Win round
+            if(gameState.enemies.length === 0 && gameState.gameActive) {
+                setTimeout(() => {
+                    gameState.round++;
+                    spawnRound();
+                }, 1000);
             }
         }
 
-        // ---------- RENDER LOOP ----------
+        // Render loop
         function animate() {
             requestAnimationFrame(animate);
             update();
             renderer.render(scene, camera);
         }
 
-        // Init
-        createWalls();
+        // Start
         spawnRound();
         animate();
 
