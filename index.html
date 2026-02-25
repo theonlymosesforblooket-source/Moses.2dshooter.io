@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>FPS Zombie Arena - FIXED</title>
+    <title>FPS Zombie Arena</title>
     <style>
         * { margin:0; padding:0; }
         body { 
@@ -70,7 +70,7 @@
             walls.push(wall);
         });
 
-        // YELLOW WARPS (teleport portals)
+        // YELLOW WARPS
         const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.9});
         const warps = [];
         [[-40,7.5,-95],[40,7.5,-95],[95,7.5,-40],[95,7.5,40],[-40,7.5,95],[40,7.5,95],[-95,7.5,-40],[-95,7.5,40]].forEach(pos => {
@@ -80,7 +80,7 @@
             warps.push(warp);
         });
 
-        // Player (invisible - pure FPS)
+        // Player
         const playerPos = new THREE.Vector3(0, 1.7, 0);
         let yaw = 0, pitch = 0, round = 1, kills = 0, bulletCount = 1;
         let bullets = [], zombies = [], cooldown = 0;
@@ -137,7 +137,7 @@
             }
         }
 
-        // Zombies (UNCHANGED - multiple spawn)
+        // Zombies
         function spawnZombies() {
             zombies.forEach(z => scene.remove(z));
             zombies = [];
@@ -160,7 +160,7 @@
         function loop() {
             requestAnimationFrame(loop);
 
-            // Movement (relative to camera direction)
+            // Movement
             const speed = 0.25;
             const forward = new THREE.Vector3(0, 0, -1);
             const right = new THREE.Vector3(1, 0, 0);
@@ -181,15 +181,18 @@
             camera.rotation.y = yaw;
             camera.rotation.x = pitch;
 
-            // **WARP TELEPORT** - CORRECT LOCATION
-            playerPos.x = Math.max(-85,Math.min(85,playerPos.x)); 
-            playerPos.z = Math.max(-85,Math.min(85,playerPos.z));
+            // FIXED WARP TELEPORT
             warps.forEach(w => {
                 if(playerPos.distanceTo(w.position) < 5) {
-                    if(w.position.x > 0) playerPos.x = -85;
-                    else if(w.position.x < 0) playerPos.x = 85;
-                    if(w.position.z > 0) playerPos.z = -85;
-                    else if(w.position.z < 0) playerPos.z = 85;
+
+                    // Teleport to opposite side based on which wall the warp is on
+                    if (Math.abs(w.position.z) > Math.abs(w.position.x)) {
+                        // North/South walls
+                        playerPos.z = w.position.z > 0 ? -85 : 85;
+                    } else {
+                        // East/West walls
+                        playerPos.x = w.position.x > 0 ? -85 : 85;
+                    }
                 }
             });
 
@@ -244,6 +247,7 @@
 
         spawnZombies();
         loop();
+
         window.onresize = () => {
             camera.aspect = innerWidth/innerHeight;
             camera.updateProjectionMatrix();
