@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>FPS Zombie Arena</title>
+    <title>FPS Zombie Arena - FIXED</title>
     <style>
         * { margin:0; padding:0; }
         body { 
@@ -54,7 +54,7 @@
         floor.rotation.x = -Math.PI/2;
         scene.add(floor);
 
-        // **BLUE WALLS**
+        // BLUE WALLS
         const wallMat = new THREE.MeshBasicMaterial({color: 0x0066cc});
         const walls = [];
         [
@@ -70,20 +70,14 @@
             walls.push(wall);
         });
 
-        // **YELLOW WARPS** (portals at wall gaps)
-        const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.7});
+        // YELLOW WARPS (teleport portals)
+        const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.9});
         const warps = [];
-        [
-            [-40, 7.5, -95], [40, 7.5, -95],    // North gaps
-            [95, 7.5, -40], [95, 7.5, 40],      // East gaps  
-            [-40, 7.5, 95], [40, 7.5, 95],      // South gaps
-            [-95, 7.5, -40], [-95, 7.5, 40]     // West gaps
-        ].forEach(pos => {
-            const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.9});
-const warps = [];
-[[-40, 7.5, -95],[40,7.5,-95],[95,7.5,-40],[95,7.5,40],[-40,7.5,95],[40,7.5,95],[-95,7.5,-40],[-95,7.5,40]].forEach(pos => {
-    const warp = new THREE.Mesh(new THREE.BoxGeometry(10,15,1), warpMat);
-    warp.position.set(...pos); scene.add(warp); warps.push(wa
+        [[-40,7.5,-95],[40,7.5,-95],[95,7.5,-40],[95,7.5,40],[-40,7.5,95],[40,7.5,95],[-95,7.5,-40],[-95,7.5,40]].forEach(pos => {
+            const warp = new THREE.Mesh(new THREE.BoxGeometry(10,15,1), warpMat);
+            warp.position.set(...pos);
+            scene.add(warp);
+            warps.push(warp);
         });
 
         // Player (invisible - pure FPS)
@@ -143,7 +137,7 @@ const warps = [];
             }
         }
 
-        // Zombies
+        // Zombies (UNCHANGED - multiple spawn)
         function spawnZombies() {
             zombies.forEach(z => scene.remove(z));
             zombies = [];
@@ -187,6 +181,18 @@ const warps = [];
             camera.rotation.y = yaw;
             camera.rotation.x = pitch;
 
+            // **WARP TELEPORT** - CORRECT LOCATION
+            playerPos.x = Math.max(-85,Math.min(85,playerPos.x)); 
+            playerPos.z = Math.max(-85,Math.min(85,playerPos.z));
+            warps.forEach(w => {
+                if(playerPos.distanceTo(w.position) < 5) {
+                    if(w.position.x > 0) playerPos.x = -85;
+                    else if(w.position.x < 0) playerPos.x = 85;
+                    if(w.position.z > 0) playerPos.z = -85;
+                    else if(w.position.z < 0) playerPos.z = 85;
+                }
+            });
+
             // Bullets
             for(let i = bullets.length-1; i>=0; i--) {
                 const b = bullets[i];
@@ -197,13 +203,7 @@ const warps = [];
                 if(b.position.length() > 100) {
                     scene.remove(b); bullets.splice(i,1); continue;
                 }
-                // Warp teleport (ADD line 195)
-playerPos.x = Math.max(-85,Math.min(85,playerPos.x)); playerPos.z = Math.max(-85,Math.min(85,playerPos.z));
-warps.forEach(w => {if(playerPos.distanceTo(w.position) < 5) {
-    if(w.position.x > 0) playerPos.x = -85; if(w.position.x < 0) playerPos.x = 85;
-    if(w.position.z > 0) playerPos.z = -85; if(w.position.z < 0) playerPos.z = 85;
-}});
-
+                
                 for(let j = zombies.length-1; j>=0; j--) {
                     if(b.position.distanceTo(zombies[j].position) < 1) {
                         scene.remove(b); scene.remove(zombies[j]);
