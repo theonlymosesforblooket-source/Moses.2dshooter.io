@@ -1,259 +1,253 @@
 <!DOCTYPE html>
 <html>
 <head>
-   
-    <title>FPS Zombie Arena</title>
-    <style>
-        * { margin:0; padding:0; }
-        body { 
-            background:#000; overflow:hidden; font:14px monospace; 
-            cursor: none;
-        }
-        canvas { display:block; width:100vw; height:100vh; }
-        #ui {
-            position:fixed; top:10px; left:10px; color:#0ff; 
-            background:rgba(0,0,0,0.8); padding:10px; border-radius:5px;
-            z-index:100;
-        }
-        #crosshair {
-            position:fixed; top:50%; left:50%; 
-            width:30px; height:30px; 
-            border:3px solid #0ff; 
-            transform:translate(-50%,-50%);
-            pointer-events:none; z-index:100;
-        }
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<title>FPS Zombie Arena</title>
+
+<meta http-equiv="Permissions-Policy" content="interest-cohort=()">
+
+<style>
+* { margin:0; padding:0; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; font:14px monospace; cursor:none; }
+canvas { display:block; width:100vw; height:100vh; }
+
+#ui {
+    position:fixed; top:10px; left:10px; color:#0ff;
+    background:rgba(0,0,0,0.8); padding:10px; border-radius:5px;
+    z-index:100;
+}
+#crosshair {
+    position:fixed; top:50%; left:50%;
+    width:30px; height:30px;
+    border:3px solid #0ff;
+    transform:translate(-50%,-50%);
+    pointer-events:none; z-index:100;
+}
+#upgradeMenu {
+    display:none;
+    position:fixed;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    background:#000; color:#0ff;
+    padding:25px; border:2px solid #0ff;
+    z-index:200; text-align:center;
+}
+button {
+    margin:10px; padding:10px 20px;
+    font-size:16px; cursor:pointer;
+}
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-    <div id="ui">
-        Round: <span id="round">1</span> | Kills: <span id="kills">0</span> | 
-        Bullets: <span id="bullets">1</span>
-    </div>
-    <div id="crosshair"></div>
 
-    <script>
-        // Scene
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x000011);
-        const camera = new THREE.PerspectiveCamera(80, innerWidth/innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer();
-        renderer.setSize(innerWidth, innerHeight);
-        document.body.appendChild(renderer.domElement);
+<div id="ui">
+Round: <span id="round">1</span> |
+Kills: <span id="kills">0</span> |
+Bullets: <span id="bullets">1</span> |
+Reload: <span id="reload">1.50</span>s
+</div>
 
-        // Lights
-        scene.add(new THREE.AmbientLight(0x666666, 0.4));
-        const sun = new THREE.DirectionalLight(0xffffff, 0.6);
-        sun.position.set(50, 50, 50);
-        scene.add(sun);
+<div id="crosshair"></div>
 
-        // FLOOR
-        const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(200, 200),
-            new THREE.MeshBasicMaterial({color: 0x112244, transparent: true, opacity: 0.8})
+<div id="upgradeMenu">
+<h2>Choose Upgrade</h2>
+<button onclick="upgradeBullets()">+1 Bullet</button>
+<button onclick="upgradeFireRate()">Faster Reload</button>
+</div>
+
+<script>
+// SCENE
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000011);
+
+const camera = new THREE.PerspectiveCamera(80, innerWidth/innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x666666, 0.4));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(50, 50, 50);
+scene.add(sun);
+
+// FLOOR
+const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(200,200),
+    new THREE.MeshBasicMaterial({color:0x112244})
+);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+// PLAYER STATE
+const playerPos = new THREE.Vector3(0,1.7,0);
+let yaw = 0, pitch = 0;
+let round = 1, kills = 0;
+let bulletCount = 1;
+let reloadCooldown = 1.5;
+let lastShotTime = 0;
+
+let bullets = [];
+let zombies = [];
+let keys = {};
+let upgradeMenuOpen = false;
+
+// POINTER LOCK
+renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
+document.addEventListener('mousemove', e => {
+    if(document.pointerLockElement){
+        yaw -= e.movementX * 0.002;
+        pitch -= e.movementY * 0.002;
+        pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+    }
+});
+
+// INPUT
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+// SHOOT
+function shoot(){
+    const now = Date.now();
+    if(upgradeMenuOpen) return;
+    if(now - lastShotTime < reloadCooldown * 1000) return;
+    lastShotTime = now;
+
+    const forward = new THREE.Vector3(0,0,-1)
+        .applyAxisAngle(new THREE.Vector3(0,1,0), yaw)
+        .applyAxisAngle(new THREE.Vector3(1,0,0), pitch);
+
+    const spread = 0.08 / bulletCount;
+
+    for(let i=0;i<bulletCount;i++){
+        const bullet = new THREE.Mesh(
+            new THREE.SphereGeometry(0.12),
+            new THREE.MeshBasicMaterial({color:0xffff44})
         );
-        floor.rotation.x = -Math.PI/2;
-        scene.add(floor);
+        bullet.position.copy(playerPos);
 
-        // BLUE WALLS
-        const wallMat = new THREE.MeshBasicMaterial({color: 0x0066cc});
-        const walls = [];
-        [
-            {pos: [0, 10, -95], rot: 0},      // North
-            {pos: [95, 10, 0], rot: Math.PI/2},  // East  
-            {pos: [0, 10, 95], rot: 0},       // South
-            {pos: [-95, 10, 0], rot: Math.PI/2}  // West
-        ].forEach(w => {
-            const wall = new THREE.Mesh(new THREE.BoxGeometry(200, 20, 8), wallMat);
-            wall.position.set(...w.pos);
-            wall.rotation.y = w.rot;
-            scene.add(wall);
-            walls.push(wall);
-        });
+        const dir = forward.clone().add(new THREE.Vector3(
+            (i - (bulletCount-1)/2)*spread,
+            (Math.random()-0.5)*spread,
+            0
+        )).normalize();
 
-        // YELLOW WARPS
-        const warpMat = new THREE.MeshBasicMaterial({color: 0xffff00, transparent: true, opacity: 0.9});
-        const warps = [];
-        [[-40,7.5,-95],[40,7.5,-95],[95,7.5,-40],[95,7.5,40],[-40,7.5,95],[40,7.5,95],[-95,7.5,-40],[-95,7.5,40]].forEach(pos => {
-            const warp = new THREE.Mesh(new THREE.BoxGeometry(10,15,1), warpMat);
-            warp.position.set(...pos);
-            scene.add(warp);
-            warps.push(warp);
-        });
+        bullet.userData.vel = dir.multiplyScalar(1.5);
+        scene.add(bullet);
+        bullets.push(bullet);
+    }
+}
 
-        // Player
-        const playerPos = new THREE.Vector3(0, 1.7, 0);
-        let yaw = 0, pitch = 0, round = 1, kills = 0, bulletCount = 1;
-        let bullets = [], zombies = [], cooldown = 0;
-        const keys = {};
+// ZOMBIES
+function spawnZombies(){
+    zombies.forEach(z => scene.remove(z));
+    zombies = [];
 
-        // Mouse lock
-        renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
-        document.addEventListener('pointerlockchange', () => {
-            document.body.style.cursor = document.pointerLockElement ? 'none' : 'auto';
-        });
-        document.addEventListener('mousemove', e => {
-            if(document.pointerLockElement) {
-                yaw -= e.movementX * 0.002;
-                pitch -= e.movementY * 0.002;
-                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-            }
-        });
+    for(let i=0;i<round+2;i++){
+        const z = new THREE.Mesh(
+            new THREE.BoxGeometry(1.2,2.5,1.2),
+            new THREE.MeshBasicMaterial({color:0x00ff00})
+        );
+        z.position.set((Math.random()-0.5)*70,1.25,(Math.random()-0.5)*70);
+        scene.add(z);
+        zombies.push(z);
+    }
+}
 
-        // WASD
-        document.addEventListener('keydown', e => {
-            keys[e.code] = true;
-            if(e.code === 'Space') e.preventDefault();
-        });
-        document.addEventListener('keyup', e => keys[e.code] = false);
+// UPGRADE MENU
+function showUpgradeMenu(){
+    upgradeMenuOpen = true;
+    document.getElementById("upgradeMenu").style.display="block";
+}
+function hideUpgradeMenu(){
+    upgradeMenuOpen = false;
+    document.getElementById("upgradeMenu").style.display="none";
+    spawnZombies();
+}
+function upgradeBullets(){
+    bulletCount++;
+    hideUpgradeMenu();
+}
+function upgradeFireRate(){
+    reloadCooldown = Math.max(0, reloadCooldown * 0.8);
+    hideUpgradeMenu();
+}
 
-        // Shoot
-        function shoot() {
-            if(cooldown > 0) return;
-            cooldown = 15;
-            
-            const forward = new THREE.Vector3(0, 0, -1);
-            forward.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
-            forward.applyAxisAngle(new THREE.Vector3(1,0,0), pitch);
-            
-            for(let i = 0; i < bulletCount; i++) {
-                const bullet = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.12),
-                    new THREE.MeshBasicMaterial({color: 0xffff44})
-                );
-                bullet.position.copy(playerPos);
-                
-                const spread = 0.08;
-                const dir = forward.clone().add(new THREE.Vector3(
-                    (Math.random()-0.5)*spread,
-                    (Math.random()-0.5)*spread,
-                    0
-                )).normalize();
-                
-                bullet.userData.vx = dir.x * 1.5;
-                bullet.userData.vy = dir.y * 1.5;
-                bullet.userData.vz = dir.z * 1.5;
-                scene.add(bullet);
-                bullets.push(bullet);
-            }
+// GAME LOOP
+function loop(){
+    requestAnimationFrame(loop);
+
+    // MOVEMENT
+    const speed = 0.25;
+    const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),yaw);
+    const right = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0),yaw);
+
+    if(keys.KeyW) playerPos.add(forward.clone().multiplyScalar(speed));
+    if(keys.KeyS) playerPos.add(forward.clone().multiplyScalar(-speed));
+    if(keys.KeyA) playerPos.add(right.clone().multiplyScalar(-speed));
+    if(keys.KeyD) playerPos.add(right.clone().multiplyScalar(speed));
+    if(keys.Space) shoot();
+
+    camera.position.copy(playerPos);
+    camera.rotation.order='YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+
+    // BULLETS
+    for(let i=bullets.length-1;i>=0;i--){
+        const b = bullets[i];
+        b.position.add(b.userData.vel);
+
+        if(b.position.length()>100){
+            scene.remove(b);
+            bullets.splice(i,1);
+            continue;
         }
 
-        // Zombies
-        function spawnZombies() {
-            zombies.forEach(z => scene.remove(z));
-            zombies = [];
-            for(let i = 0; i < round + 2; i++) {
-                const zombie = new THREE.Mesh(
-                    new THREE.BoxGeometry(1.2, 2.5, 1.2),
-                    new THREE.MeshBasicMaterial({color: 0x00ff00})
-                );
-                zombie.position.set(
-                    (Math.random()-0.5)*70,
-                    1.25,
-                    (Math.random()-0.5)*70
-                );
-                scene.add(zombie);
-                zombies.push(zombie);
+        for(let j=zombies.length-1;j>=0;j--){
+            if(b.position.distanceTo(zombies[j].position)<1){
+                scene.remove(b);
+                scene.remove(zombies[j]);
+                bullets.splice(i,1);
+                zombies.splice(j,1);
+                kills++;
+                break;
             }
         }
+    }
 
-        // Game loop
-        function loop() {
-            requestAnimationFrame(loop);
+    // ZOMBIE CHASE
+    zombies.forEach(z=>{
+        const zSpeed = 0.05 + (round * 0.002);
+        const dir = playerPos.clone().sub(z.position).normalize();
+        z.position.add(dir.multiplyScalar(zSpeed));
+        z.rotation.y = Math.atan2(dir.x, dir.z);
 
-            // Movement
-            const speed = 0.25;
-            const forward = new THREE.Vector3(0, 0, -1);
-            const right = new THREE.Vector3(1, 0, 0);
-            forward.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
-            right.applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
-            
-            if(keys.KeyW) playerPos.add(forward.clone().multiplyScalar(speed));
-            if(keys.KeyS) playerPos.add(forward.clone().multiplyScalar(-speed));
-            if(keys.KeyA) playerPos.add(right.clone().multiplyScalar(-speed));
-            if(keys.KeyD) playerPos.add(right.clone().multiplyScalar(speed));
-
-            if(keys.Space) shoot();
-            if(cooldown > 0) cooldown--;
-
-            // FPS Camera
-            camera.position.copy(playerPos);
-            camera.rotation.order = 'YXZ';
-            camera.rotation.y = yaw;
-            camera.rotation.x = pitch;
-
-            // FIXED WARP TELEPORT
-            warps.forEach(w => {
-                if(playerPos.distanceTo(w.position) < 5) {
-
-                    // Teleport to opposite side based on which wall the warp is on
-                    if (Math.abs(w.position.z) > Math.abs(w.position.x)) {
-                        // North/South walls
-                        playerPos.z = w.position.z > 0 ? -85 : 85;
-                    } else {
-                        // East/West walls
-                        playerPos.x = w.position.x > 0 ? -85 : 85;
-                    }
-                }
-            });
-
-            // Bullets
-            for(let i = bullets.length-1; i>=0; i--) {
-                const b = bullets[i];
-                b.position.x += b.userData.vx;
-                b.position.y += b.userData.vy;
-                b.position.z += b.userData.vz;
-                
-                if(b.position.length() > 100) {
-                    scene.remove(b); bullets.splice(i,1); continue;
-                }
-                
-                for(let j = zombies.length-1; j>=0; j--) {
-                    if(b.position.distanceTo(zombies[j].position) < 1) {
-                        scene.remove(b); scene.remove(zombies[j]);
-                        bullets.splice(i,1);
-                        zombies.splice(j,1);
-                        kills++;
-                        break;
-                    }
-                }
-            }
-
-            // Zombies chase
-            zombies.forEach(z => {
-                const dir = playerPos.clone().sub(z.position).normalize();
-                z.position.add(dir.multiplyScalar(0.05));
-                z.rotation.y = Math.atan2(dir.x, dir.z);
-                
-                if(z.position.distanceTo(playerPos) < 1.5) {
-                    alert(`GAME OVER\nRound ${round} | Kills: ${kills}`);
-                    round = 1; kills = 0; bulletCount = 1;
-                    spawnZombies();
-                }
-            });
-
-            // Next round
-            if(zombies.length === 0) {
-                round++;
-                spawnZombies();
-            }
-
-            // UI
-            document.getElementById('round').textContent = round;
-            document.getElementById('kills').textContent = kills;
-            document.getElementById('bullets').textContent = bulletCount;
-
-            renderer.render(scene, camera);
+        if(z.position.distanceTo(playerPos)<1.5){
+            alert(`GAME OVER\nRound ${round} | Kills: ${kills}`);
+            round=1; kills=0; bulletCount=1; reloadCooldown=1.5;
+            spawnZombies();
         }
+    });
 
-        spawnZombies();
-        loop();
+    // NEXT ROUND
+    if(zombies.length===0 && !upgradeMenuOpen){
+        round++;
+        if(round % 3 === 0) showUpgradeMenu();
+        else spawnZombies();
+    }
 
-        window.onresize = () => {
-            camera.aspect = innerWidth/innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(innerWidth, innerHeight);
-        };
-    </script>
+    // UI
+    document.getElementById('round').textContent = round;
+    document.getElementById('kills').textContent = kills;
+    document.getElementById('bullets').textContent = bulletCount;
+    document.getElementById('reload').textContent = reloadCooldown.toFixed(2);
+
+    renderer.render(scene, camera);
+}
+
+spawnZombies();
+loop();
+</script>
 </body>
 </html>
