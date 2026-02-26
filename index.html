@@ -81,8 +81,44 @@ scene.background = new THREE.Color(0x000011);
 
 const camera = new THREE.PerspectiveCamera(80, innerWidth/innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
+const composer = new THREE.EffectComposer(renderer);
+const renderPass = new THREE.RenderPass(scene, camera);
+composer.addPass(renderPass);
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
+
+const WarpShader = {
+    uniforms: {
+        "tDiffuse": { value: null },
+        "strength": { value: 0.0 }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float strength;
+        varying vec2 vUv;
+
+        void main() {
+            vec2 uv = vUv;
+            vec2 center = vec2(0.5, 0.5);
+            vec2 delta = uv - center;
+            float dist = length(delta);
+            float warp = strength * dist * dist * 2.0;
+            uv += delta * warp;
+            gl_FragColor = texture2D(tDiffuse, uv);
+        }
+    `
+};
+
+const warpPass = new THREE.ShaderPass(WarpShader);
+composer.addPass(warpPass);
+
 
 scene.add(new THREE.AmbientLight(0x666666, 0.4));
 const sun = new THREE.DirectionalLight(0xffffff, 0.6);
@@ -258,7 +294,8 @@ function loop(){
         if (!collidesWithWall3D(nextPos, 0.6)) {
             playerPos.copy(nextPos);
         }
-    }
+    warpPass.uniforms.strength.value = Math.min(0.15, warpPass.uniforms.strength.value + 0.02);
+}
 
     if(keys.Space) shoot();
 
@@ -295,7 +332,8 @@ function loop(){
                 zombies.splice(j,1);
                 kills++;
                 break;
-            }
+         warpPass.uniforms.strength.value = 0.25;
+   }
         }
     }
 
@@ -310,6 +348,9 @@ function loop(){
         }
 
         z.rotation.y = Math.atan2(dir.x, dir.z);
+if (z.position.distanceTo(playerPos) < 6) {
+    warpPass.uniforms.strength.value = Math.min(0.3, warpPass.uniforms.strength.value + 0.03);
+}
 
         if(z.position.distanceTo(playerPos)<1.5){
             alert(`GAME OVER\nRound ${round} | Kills: ${kills}`);
@@ -331,7 +372,7 @@ function loop(){
     document.getElementById('bullets').textContent = bulletCount;
     document.getElementById('reload').textContent = reloadCooldown.toFixed(2);
 
-    renderer.render(scene, camera);
+composer.render();
 }
 
 spawnZombies();
