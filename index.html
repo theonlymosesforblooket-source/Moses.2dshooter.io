@@ -55,7 +55,9 @@ button {
     font-size:16px; cursor:pointer;
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+\<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/js/postprocessing/ShaderPass.js"></script>
 </head>
 <body>
 
@@ -205,6 +207,7 @@ function shoot(){
     if(upgradeMenuOpen) return;
     if(now - lastShotTime < reloadCooldown * 1000) return;
     lastShotTime = now;
+warpPass.uniforms.strength.value = 0.25;
 
     const forward = new THREE.Vector3(0,0,-1)
         .applyAxisAngle(new THREE.Vector3(0,1,0), yaw)
@@ -276,6 +279,7 @@ function upgradeFireRate(){
 // GAME LOOP
 function loop(){
     requestAnimationFrame(loop);
+warpPass.uniforms.strength.value *= 0.92;
 
     // MOVEMENT
     const speed = 0.25;
@@ -294,7 +298,7 @@ function loop(){
         if (!collidesWithWall3D(nextPos, 0.6)) {
             playerPos.copy(nextPos);
         }
-    warpPass.uniforms.strength.value = Math.min(0.15, warpPass.uniforms.strength.value + 0.02);
+        warpPass.uniforms.strength.value = Math.min(0.15, warpPass.uniforms.strength.value + 0.02);
 }
 
     if(keys.Space) shoot();
@@ -332,8 +336,7 @@ function loop(){
                 zombies.splice(j,1);
                 kills++;
                 break;
-         warpPass.uniforms.strength.value = 0.25;
-   }
+            }
         }
     }
 
